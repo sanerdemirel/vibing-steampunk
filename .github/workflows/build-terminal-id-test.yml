@@ -1,0 +1,39 @@
+# Fork-only helper, not part of PR #394: builds the terminal-id fix for a live
+# test on Windows and publishes the binary as a prerelease of this fork.
+name: build terminal-id test binary
+
+on:
+  push:
+    branches: [ci-build-terminal-id]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+      - name: Test
+        run: go test -shuffle=on ./...
+      - name: Build Windows binary
+        run: |
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o vsp-windows-amd64.exe ./cmd/vsp
+          sha256sum vsp-windows-amd64.exe > vsp-windows-amd64.exe.sha256
+          cat vsp-windows-amd64.exe.sha256
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="terminal-id-test-$(git rev-parse --short HEAD)"
+          gh release create "$tag" vsp-windows-amd64.exe vsp-windows-amd64.exe.sha256 \
+            --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" \
+            --title "$tag" --notes "Test build of fix/mcp-debugger-terminal-id (PR #394). Not an official vsp release."
