@@ -1,0 +1,44 @@
+# Fork-only helper, not part of the PR: runs the checks, rewrites the tools
+# golden files and builds a Windows test binary of feat/run-class.
+name: build run-class test binary
+
+on:
+  push:
+    branches: [ci-build-run-class]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l pkg internal cmd)" || { gofmt -l pkg internal cmd; exit 1; }
+      - name: Rewrite tools golden files
+        run: go test ./internal/mcp -run TestToolRegistryGolden -update-tools-golden -count=1
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+      - name: Test
+        run: go test -shuffle=on ./...
+      - name: Build Windows binary
+        run: |
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o vsp-windows-amd64.exe ./cmd/vsp
+          sha256sum vsp-windows-amd64.exe > vsp-windows-amd64.exe.sha256
+          cat vsp-windows-amd64.exe.sha256
+          tar czf tools_golden.tgz internal/mcp/testdata/tools_golden
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="run-class-test-$(git rev-parse --short HEAD)"
+          gh release create "$tag" vsp-windows-amd64.exe vsp-windows-amd64.exe.sha256 tools_golden.tgz \
+            --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" \
+            --title "$tag" --notes "Test build of feat/run-class. Not an official vsp release."
