@@ -25,8 +25,10 @@ jobs:
           files=$(git diff --name-only --diff-filter=AM 6e1db96 HEAD -- '*.go')
           echo "$files"
           test -z "$files" || test -z "$(gofmt -l $files)" || { gofmt -l $files; exit 1; }
-      - name: Rewrite tools golden files
-        run: go test ./internal/mcp -run TestToolRegistryGolden -update-tools-golden -count=1
+      - name: Rewrite tools and help golden files
+        run: |
+          go test ./internal/mcp -run TestToolRegistryGolden -update-tools-golden -count=1
+          go test ./internal/mcp -run TestHelpGolden -update-help-golden -count=1
       - name: Build and vet
         run: |
           go build ./...
