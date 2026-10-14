@@ -38,7 +38,7 @@ jobs:
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o vsp-windows-amd64.exe ./cmd/vsp
           sha256sum vsp-windows-amd64.exe > vsp-windows-amd64.exe.sha256
           cat vsp-windows-amd64.exe.sha256
-          tar czf tools_golden.tgz internal/mcp/testdata/tools_golden
+          tar czf tools_golden.tgz internal/mcp/testdata/tools_golden internal/mcp/testdata/help_golden.sha256
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
