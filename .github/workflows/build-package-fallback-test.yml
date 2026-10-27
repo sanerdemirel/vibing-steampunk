@@ -1,0 +1,46 @@
+# Fork-only helper, not part of the PR: runs the checks and builds a Windows
+# test binary of feat/run-class plus fix/package-from-metadata.
+name: build package-fallback test binary
+
+on:
+  push:
+    branches: [ci-build-package-fallback]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt (changed files only; the repo has older unformatted files)
+        run: |
+          files=$(git diff --name-only --diff-filter=AM 6e1db96 HEAD -- '*.go')
+          echo "$files"
+          test -z "$files" || test -z "$(gofmt -l $files)" || { gofmt -l $files; exit 1; }
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+      - name: Test
+        run: go test -shuffle=on ./...
+      - name: Build Windows binary
+        run: |
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o vsp-windows-amd64.exe ./cmd/vsp
+          sha256sum vsp-windows-amd64.exe > vsp-windows-amd64.exe.sha256
+          cat vsp-windows-amd64.exe.sha256
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="package-fallback-test-$(git rev-parse --short HEAD)"
+          gh release create "$tag" vsp-windows-amd64.exe vsp-windows-amd64.exe.sha256 \
+            --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" \
+            --title "$tag" --notes "Test build of feat/run-class plus fix/package-from-metadata. Not an official vsp release."
