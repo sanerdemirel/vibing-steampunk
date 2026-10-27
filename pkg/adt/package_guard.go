@@ -95,6 +95,15 @@ func (c *Client) getObjectPackage(ctx context.Context, objectURL string, inLockS
 		}
 	}
 
+	// Some releases return no package in the quick search, while the object's
+	// metadata document always names it.
+	body, _, err := c.readMetadata(ctx, normalized, inLockSession)
+	if err != nil {
+		return "", fmt.Errorf("package metadata not found: %w", err)
+	}
+	if pkg := packageRefOf([]byte(body)); pkg != "" {
+		return pkg, nil
+	}
 	return "", fmt.Errorf("package metadata not found")
 }
 
