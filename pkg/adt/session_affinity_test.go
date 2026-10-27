@@ -235,9 +235,9 @@ func TestEditSource_NoStatelessRequestBetweenLockAndPut(t *testing.T) {
 }
 
 // A search that names no package sends getObjectPackage to the metadata
-// document. When the gate runs inside the lock window that GET has to stay in
-// the lock's session too.
-func TestEditSource_PackageFallbackInsideLockIsStateful(t *testing.T) {
+// document. EditSource runs its gate above the LOCK, without a handle, so that
+// GET goes out before the LOCK and the write still succeeds.
+func TestEditSource_PackageFallbackBeforeLock(t *testing.T) {
 	const objectURL = "/sap/bc/adt/programs/programs/ZDEMO_EDIT"
 
 	rec := &adtRecorder{}
@@ -283,6 +283,68 @@ func TestEditSource_PackageFallbackInsideLockIsStateful(t *testing.T) {
 	putAt := indexOfCall(calls, isSourcePut)
 	if lockAt < 0 || putAt < 0 || putAt < lockAt {
 		t.Fatalf("expected a LOCK followed by a source PUT; trace:\n%v", calls)
+	}
+	if metadataAt > lockAt {
+		t.Errorf("metadata GET at %d is not above the LOCK at %d", metadataAt, lockAt)
+		dumpCalls(t, calls)
+	}
+	assertWindowStateful(t, calls, lockAt, putAt)
+}
+
+// A caller-supplied lock handle makes the gate run after the LOCK. If the
+// search names no package, the metadata GET that follows has to stay in the
+// lock's stateful session, like the search itself.
+func TestUpdateSource_PackageFallbackInsideLockIsStateful(t *testing.T) {
+	const objectURL = "/sap/bc/adt/programs/programs/ZDEMO_LOCKED"
+
+	rec := &adtRecorder{}
+	client := newStubbedClient(t, rec, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "informationsystem/search"):
+			_, _ = io.WriteString(w, searchXMLFor(
+				"/sap/bc/adt/programs/programs/zdemo_locked", "ZDEMO_LOCKED", ""))
+		case r.Method == http.MethodGet && r.URL.Path == objectURL:
+			_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>
+<program:abapProgram xmlns:program="http://www.sap.com/adt/programs/programs" xmlns:adtcore="http://www.sap.com/adt/core" adtcore:name="ZDEMO_LOCKED">`+
+				`<adtcore:packageRef adtcore:uri="/sap/bc/adt/packages/%24tmp" adtcore:type="DEVC/K" adtcore:name="$TMP"/></program:abapProgram>`)
+		case r.Method == http.MethodPost && r.URL.Query().Get("_action") == "LOCK":
+			w.Header().Set("Content-Type", "application/vnd.sap.as+xml")
+			_, _ = io.WriteString(w, testLockXML)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}, WithAllowedPackages("$TMP"))
+	ctx := context.Background()
+
+	lock, err := client.LockObject(ctx, objectURL, "MODIFY")
+	if err != nil {
+		t.Fatalf("LockObject: %v", err)
+	}
+	if err := client.UpdateSource(ctx, objectURL+"/source/main",
+		"REPORT zdemo_locked.\n", lock.LockHandle, ""); err != nil {
+		t.Fatalf("UpdateSource: %v", err)
+	}
+
+	calls := rec.snapshot()
+	lockAt := indexOfCall(calls, isLock)
+	putAt := indexOfCall(calls, isSourcePut)
+	if lockAt < 0 || putAt < 0 || putAt < lockAt {
+		dumpCalls(t, calls)
+		t.Fatal("expected a LOCK followed by a source PUT")
+	}
+	metadataAt := -1
+	for i := lockAt + 1; i < putAt; i++ {
+		if calls[i].method == http.MethodGet && calls[i].path == objectURL {
+			metadataAt = i
+		}
+	}
+	if metadataAt < 0 {
+		dumpCalls(t, calls)
+		t.Fatal("no metadata GET between LOCK and PUT")
+	}
+	if calls[metadataAt].sessionType != "stateful" {
+		t.Errorf("metadata GET between LOCK and PUT is not stateful: %s", calls[metadataAt])
+		dumpCalls(t, calls)
 	}
 	assertWindowStateful(t, calls, lockAt, putAt)
 }

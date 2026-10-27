@@ -237,12 +237,11 @@ func TestClient_CheckObjectPackageSafety_FallsBackToMetadata(t *testing.T) {
 		metadata *http.Response // nil: no route, the mock answers 404
 		allowed  string
 		wantErr  string // empty: no error expected
-		wantGet  bool
 	}{
-		{name: "allowed package", metadata: newMetadataResponse("ZPKG"), allowed: "Z*", wantGet: true},
-		{name: "foreign package", metadata: newMetadataResponse("ZOTHER"), allowed: "$TMP", wantErr: "operations on package 'ZOTHER'", wantGet: true},
-		{name: "no packageRef", metadata: newMetadataResponse(""), allowed: "Z*", wantErr: "package metadata not found", wantGet: true},
-		{name: "metadata GET fails", metadata: nil, allowed: "Z*", wantErr: "package metadata not found", wantGet: true},
+		{name: "allowed package", metadata: newMetadataResponse("ZPKG"), allowed: "Z*"},
+		{name: "foreign package", metadata: newMetadataResponse("ZOTHER"), allowed: "$TMP", wantErr: "operations on package 'ZOTHER'"},
+		{name: "no packageRef", metadata: newMetadataResponse(""), allowed: "Z*", wantErr: "package metadata not found"},
+		{name: "metadata GET fails", metadata: nil, allowed: "Z*", wantErr: "package metadata not found"},
 	}
 
 	for _, tt := range tests {
@@ -275,7 +274,7 @@ func TestClient_CheckObjectPackageSafety_FallsBackToMetadata(t *testing.T) {
 					gets++
 				}
 			}
-			if tt.wantGet && gets != 1 {
+			if gets != 1 {
 				t.Errorf("metadata GETs on %s = %d, want 1", metadataPath, gets)
 			}
 		})
