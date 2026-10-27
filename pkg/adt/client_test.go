@@ -242,6 +242,11 @@ func TestClient_CheckObjectPackageSafety_FallsBackToMetadata(t *testing.T) {
 		{name: "foreign package", metadata: newMetadataResponse("ZOTHER"), allowed: "$TMP", wantErr: "operations on package 'ZOTHER'"},
 		{name: "no packageRef", metadata: newMetadataResponse(""), allowed: "Z*", wantErr: "package metadata not found"},
 		{name: "metadata GET fails", metadata: nil, allowed: "Z*", wantErr: "package metadata not found"},
+		{name: "metadata GET answers 500", metadata: &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Body:       io.NopCloser(strings.NewReader("server error")),
+			Header:     http.Header{},
+		}, allowed: "Z*", wantErr: "package metadata not found"},
 	}
 
 	for _, tt := range tests {
@@ -278,6 +283,36 @@ func TestClient_CheckObjectPackageSafety_FallsBackToMetadata(t *testing.T) {
 				t.Errorf("metadata GETs on %s = %d, want 1", metadataPath, gets)
 			}
 		})
+	}
+}
+
+func TestClient_CheckObjectPackageSafety_ClassIncludeFallsBackToParentMetadata(t *testing.T) {
+	const metadataPath = "/sap/bc/adt/oo/classes/ZCL_DEMO"
+
+	mock := &mockTransportClient{
+		responses: map[string]*http.Response{
+			"search":     newSearchResponse("/sap/bc/adt/oo/classes/zcl_demo", "CLAS/OC", "ZCL_DEMO", ""),
+			"discovery":  newTestResponse("OK"),
+			metadataPath: newMetadataResponse("ZPKG"),
+		},
+	}
+
+	cfg := NewConfig("https://sap.example.com:44300", "user", "pass", WithAllowedPackages("Z*"))
+	transport := NewTransportWithClient(cfg, mock)
+	client := NewClientWithTransport(cfg, transport)
+
+	err := client.checkObjectPackageSafety(context.Background(), "/sap/bc/adt/oo/classes/ZCL_DEMO/includes/testclasses", false)
+	if err != nil {
+		t.Fatalf("checkObjectPackageSafety failed: %v", err)
+	}
+	gets := 0
+	for _, r := range mock.requests {
+		if r.Method == http.MethodGet && r.URL.Path == metadataPath {
+			gets++
+		}
+	}
+	if gets != 1 {
+		t.Errorf("metadata GETs on %s = %d, want 1", metadataPath, gets)
 	}
 }
 
