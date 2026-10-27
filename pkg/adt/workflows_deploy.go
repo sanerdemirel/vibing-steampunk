@@ -32,7 +32,7 @@ type DeployResult struct {
 }
 
 // blockingSyntaxErrors returns the check run messages that stop a write:
-// severity E, A or X. Warnings and infos do not, as in EditSource.
+// severity E, A or X. Warnings and infos do not, as in WriteSource.
 func blockingSyntaxErrors(results []SyntaxCheckResult) []SyntaxCheckResult {
 	var blocking []SyntaxCheckResult
 	for _, r := range results {
