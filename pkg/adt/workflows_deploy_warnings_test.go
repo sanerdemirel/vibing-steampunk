@@ -139,6 +139,9 @@ func TestDeployFromFile_CreateWithWarningsOnlyContinues(t *testing.T) {
 	if strings.Contains(result.Message, "syntax errors") {
 		t.Fatalf("a warning must not be reported as a syntax error; message=%q", result.Message)
 	}
+	if !result.Success || !result.Created {
+		t.Fatalf("warnings must not stop the create; Success=%v Created=%v message=%q", result.Success, result.Created, result.Message)
+	}
 	if indexOfCall(rec.snapshot(), isSourcePut) < 0 {
 		t.Fatalf("expected the flow to reach the write; trace:\n%v", rec.snapshot())
 	}
