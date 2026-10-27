@@ -234,6 +234,59 @@ func TestEditSource_NoStatelessRequestBetweenLockAndPut(t *testing.T) {
 	}
 }
 
+// A search that names no package sends getObjectPackage to the metadata
+// document. When the gate runs inside the lock window that GET has to stay in
+// the lock's session too.
+func TestEditSource_PackageFallbackInsideLockIsStateful(t *testing.T) {
+	const objectURL = "/sap/bc/adt/programs/programs/ZDEMO_EDIT"
+
+	rec := &adtRecorder{}
+	client := newStubbedClient(t, rec, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "informationsystem/search"):
+			_, _ = io.WriteString(w, searchXMLFor(
+				"/sap/bc/adt/programs/programs/zdemo_edit", "ZDEMO_EDIT", ""))
+		case r.Method == http.MethodGet && r.URL.Path == objectURL:
+			_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>
+<program:abapProgram xmlns:program="http://www.sap.com/adt/programs/programs" xmlns:adtcore="http://www.sap.com/adt/core" adtcore:name="ZDEMO_EDIT">`+
+				`<adtcore:packageRef adtcore:uri="/sap/bc/adt/packages/%24tmp" adtcore:type="DEVC/K" adtcore:name="$TMP"/></program:abapProgram>`)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/source/main"):
+			_, _ = io.WriteString(w, "REPORT zdemo_edit.\nWRITE 'old'.\n")
+		case strings.Contains(r.URL.Path, "/checkruns"):
+			w.Header().Set("Content-Type", "application/vnd.sap.adt.checkmessages+xml")
+			_, _ = io.WriteString(w, testEmptyCheckXML)
+		case r.Method == http.MethodPost && r.URL.Query().Get("_action") == "LOCK":
+			w.Header().Set("Content-Type", "application/vnd.sap.as+xml")
+			_, _ = io.WriteString(w, testLockXML)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}, WithAllowedPackages("$TMP"))
+
+	result, err := client.EditSourceWithOptions(context.Background(), objectURL,
+		"WRITE 'old'.", "WRITE 'new'.", &EditSourceOptions{SyntaxCheck: false})
+	if err != nil {
+		t.Fatalf("EditSourceWithOptions: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("edit did not succeed: %s", result.Message)
+	}
+
+	calls := rec.snapshot()
+	metadataAt := indexOfCall(calls, func(c wireCall) bool {
+		return c.method == http.MethodGet && c.path == objectURL
+	})
+	if metadataAt < 0 {
+		t.Fatalf("expected a metadata GET on %s; trace:\n%v", objectURL, calls)
+	}
+	lockAt := indexOfCall(calls, isLock)
+	putAt := indexOfCall(calls, isSourcePut)
+	if lockAt < 0 || putAt < 0 || putAt < lockAt {
+		t.Fatalf("expected a LOCK followed by a source PUT; trace:\n%v", calls)
+	}
+	assertWindowStateful(t, calls, lockAt, putAt)
+}
+
 // --- CreateTable: the mutation that was itself stateless ---
 
 func TestCreateTable_SourcePutStaysInTheLockSession(t *testing.T) {

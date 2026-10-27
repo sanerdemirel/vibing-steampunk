@@ -217,6 +217,94 @@ func TestClient_CheckObjectPackageSafety_NormalizesObjectURLs(t *testing.T) {
 	}
 }
 
+// newMetadataResponse renders an object metadata document. An empty pkg
+// yields a root element without a packageRef child.
+func newMetadataResponse(pkg string) *http.Response {
+	ref := ""
+	if pkg != "" {
+		ref = `<adtcore:packageRef adtcore:uri="/sap/bc/adt/packages/` + strings.ToLower(pkg) + `" adtcore:type="DEVC/K" adtcore:name="` + pkg + `"/>`
+	}
+	return newTestResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<program:abapProgram xmlns:program="http://www.sap.com/adt/programs/programs" xmlns:adtcore="http://www.sap.com/adt/core" adtcore:name="ZDEMO_REPORT">` + ref + `</program:abapProgram>`)
+}
+
+func TestClient_CheckObjectPackageSafety_FallsBackToMetadata(t *testing.T) {
+	const objectURL = "/sap/bc/adt/programs/programs/ZDEMO_REPORT/source/main"
+	const metadataPath = "/sap/bc/adt/programs/programs/ZDEMO_REPORT"
+
+	tests := []struct {
+		name     string
+		metadata *http.Response // nil: no route, the mock answers 404
+		allowed  string
+		wantErr  string // empty: no error expected
+		wantGet  bool
+	}{
+		{name: "allowed package", metadata: newMetadataResponse("ZPKG"), allowed: "Z*", wantGet: true},
+		{name: "foreign package", metadata: newMetadataResponse("ZOTHER"), allowed: "$TMP", wantErr: "operations on package 'ZOTHER'", wantGet: true},
+		{name: "no packageRef", metadata: newMetadataResponse(""), allowed: "Z*", wantErr: "package metadata not found", wantGet: true},
+		{name: "metadata GET fails", metadata: nil, allowed: "Z*", wantErr: "package metadata not found", wantGet: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			responses := map[string]*http.Response{
+				"search":    newSearchResponse("/sap/bc/adt/programs/programs/zdemo_report", "PROG/P", "ZDEMO_REPORT (Program)", ""),
+				"discovery": newTestResponse("OK"),
+			}
+			if tt.metadata != nil {
+				responses[metadataPath] = tt.metadata
+			}
+			mock := &mockTransportClient{responses: responses}
+
+			cfg := NewConfig("https://sap.example.com:44300", "user", "pass", WithAllowedPackages(tt.allowed))
+			transport := NewTransportWithClient(cfg, mock)
+			client := NewClientWithTransport(cfg, transport)
+
+			err := client.checkObjectPackageSafety(context.Background(), objectURL, false)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("checkObjectPackageSafety failed: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+
+			gets := 0
+			for _, r := range mock.requests {
+				if r.Method == http.MethodGet && r.URL.Path == metadataPath {
+					gets++
+				}
+			}
+			if tt.wantGet && gets != 1 {
+				t.Errorf("metadata GETs on %s = %d, want 1", metadataPath, gets)
+			}
+		})
+	}
+}
+
+func TestClient_CheckObjectPackageSafety_SearchPackageNeedsNoMetadata(t *testing.T) {
+	mock := &mockTransportClient{
+		responses: map[string]*http.Response{
+			"search":    newSearchResponse("/sap/bc/adt/programs/programs/zdemo_report", "PROG/P", "ZDEMO_REPORT (Program)", "ZPKG"),
+			"discovery": newTestResponse("OK"),
+		},
+	}
+
+	cfg := NewConfig("https://sap.example.com:44300", "user", "pass", WithAllowedPackages("Z*"))
+	transport := NewTransportWithClient(cfg, mock)
+	client := NewClientWithTransport(cfg, transport)
+
+	err := client.checkObjectPackageSafety(context.Background(), "/sap/bc/adt/programs/programs/ZDEMO_REPORT/source/main", false)
+	if err != nil {
+		t.Fatalf("checkObjectPackageSafety failed: %v", err)
+	}
+	for _, r := range mock.requests {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sap/bc/adt/programs/programs/ZDEMO_REPORT") {
+			t.Errorf("unexpected object GET: %s", r.URL.Path)
+		}
+	}
+}
+
 func TestNormalizeObjectURLForPackageCheck(t *testing.T) {
 	cases := []struct {
 		input string
