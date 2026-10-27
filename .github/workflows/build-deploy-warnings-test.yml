@@ -1,10 +1,10 @@
 # Fork-only helper, not part of the PR: runs the checks and builds a Windows
-# test binary of feat/run-class plus fix/package-from-metadata.
-name: build package-fallback test binary
+# test binary of feat/run-class, fix/package-from-metadata and fix/deploy-warnings.
+name: build deploy-warnings test binary
 
 on:
   push:
-    branches: [ci-build-package-fallback]
+    branches: [ci-build-deploy-warnings]
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="package-fallback-test-$(git rev-parse --short HEAD)"
+          tag="deploy-warnings-test-$(git rev-parse --short HEAD)"
           gh release create "$tag" vsp-windows-amd64.exe vsp-windows-amd64.exe.sha256 \
             --repo "$GITHUB_REPOSITORY" --prerelease --target "$(git rev-parse HEAD)" \
-            --title "$tag" --notes "Test build of feat/run-class plus fix/package-from-metadata. Not an official vsp release."
+            --title "$tag" --notes "Test build of feat/run-class, fix/package-from-metadata and fix/deploy-warnings. Not an official vsp release."
