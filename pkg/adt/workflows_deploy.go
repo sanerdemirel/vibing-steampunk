@@ -24,7 +24,7 @@ type DeployResult struct {
 	Created            bool     `json:"created"` // true if created, false if updated
 	SyntaxErrors       []string `json:"syntaxErrors,omitempty"`
 	SyntaxWarnings     []string `json:"syntaxWarnings,omitempty"`
-	Errors           []string `json:"errors,omitempty"`
+	Errors             []string `json:"errors,omitempty"`
 	ExpectedSourceHash string   `json:"expectedSourceHash,omitempty"`
 	TargetSourceHash   string   `json:"targetSourceHash,omitempty"`
 	VerifiedSourceHash string   `json:"verifiedSourceHash,omitempty"`
