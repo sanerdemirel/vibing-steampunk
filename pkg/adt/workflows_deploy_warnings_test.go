@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -63,6 +64,7 @@ func deployWarningsClient(t *testing.T, rec *adtRecorder, missing bool, severiti
 		t.Fatal(err)
 	}
 
+	var probed atomic.Bool
 	client := newStubbedClient(t, rec, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "/checkruns"):
@@ -71,7 +73,8 @@ func deployWarningsClient(t *testing.T, rec *adtRecorder, missing bool, severiti
 		case r.Method == http.MethodPost && r.URL.Query().Get("_action") == "LOCK":
 			w.Header().Set("Content-Type", "application/vnd.sap.as+xml")
 			_, _ = io.WriteString(w, testLockXML)
-		case missing && r.Method == http.MethodGet && r.URL.Path == objectPath:
+		case missing && r.Method == http.MethodGet && r.URL.Path == objectPath && !probed.Swap(true):
+			// Only the existence probe finds nothing; the object exists once created.
 			w.WriteHeader(http.StatusNotFound)
 		default:
 			w.WriteHeader(http.StatusOK)
